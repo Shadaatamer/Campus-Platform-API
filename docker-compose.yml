@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: sis_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-sis}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-12345}
+      POSTGRES_DB: ${DB_NAME:-sis_db}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/data/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./backend/migrations/001_announcements.sql:/docker-entrypoint-initdb.d/02_announcements.sql
+      - ./backend/migrations/002_professor_features.sql:/docker-entrypoint-initdb.d/03_professor_features.sql
+      - ./backend/data/admin_features.sql:/docker-entrypoint-initdb.d/04_admin_features.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - unisphere-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: unisphere_backend
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-sis}
+      DB_PASSWORD: ${DB_PASSWORD:-12345}
+      DB_NAME: ${DB_NAME:-sis_db}
+      JWT_SECRET: ${JWT_SECRET:-my_super_secret_key}
+      PORT: 5050
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - unisphere-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: unisphere_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:5000/api
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - unisphere-network
+
+volumes:
+  postgres_data:
+
+networks:
+  unisphere-network:
+    driver: bridge
